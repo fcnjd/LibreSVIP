@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 import rich
 
+from libresvip.core.compat import ZipFile
 from libresvip.extension.manager import plugin_manager
 from libresvip.utils.text import to_unicode
 
@@ -127,7 +128,7 @@ def test_ppsf_read(
     with capsys.disabled():
         proj_path = shared_datadir / "test.ppsf"
         try:
-            proj_text = zipfile.ZipFile(proj_path, "r").read("ppsf.json")
+            proj_text = ZipFile(proj_path, "r").read("ppsf.json")
             proj = PpsfProject.model_validate_json(proj_text)
             rich.print(proj)
         except zipfile.BadZipFile:
@@ -140,19 +141,17 @@ def test_vog_read(shared_datadir: pathlib.Path, capsys: pytest.CaptureFixture[st
 
     with capsys.disabled():
         proj_path = shared_datadir / "test.vog"
-        proj_text = zipfile.ZipFile(proj_path, "r").read("chart.json")
+        proj_text = ZipFile(proj_path, "r").read("chart.json")
         proj = VogenProject.model_validate_json(proj_text)
         rich.print(proj)
 
 
 def test_vpr_read(shared_datadir: pathlib.Path, capsys: pytest.CaptureFixture[str]) -> None:
-    import zipfile
-
     from libresvip.plugins.vpr.model import VocaloidProject
 
     with capsys.disabled():
         proj_path = shared_datadir / "test.vpr"
-        proj_text = zipfile.ZipFile(proj_path, "r").read("Project/sequence.json")
+        proj_text = ZipFile(proj_path, "r").read("Project/sequence.json")
         proj = VocaloidProject.model_validate_json(proj_text)
         rich.print(proj)
 
@@ -217,7 +216,7 @@ def test_musicxml_read(shared_datadir: pathlib.Path) -> None:
     from xsdata.formats.dataclass.parsers.config import ParserConfig
     from xsdata_pydantic.bindings import XmlParser
 
-    from libresvip.plugins.musicxml.models.mxml2 import ScorePartwise
+    from libresvip.plugins.musicxml.models.mxml4 import ScorePartwise
 
     proj_path = shared_datadir / "test.musicxml"
     xml_parser = XmlParser(config=ParserConfig(fail_on_unknown_properties=False))
@@ -306,3 +305,16 @@ def test_vsq_read(shared_datadir: pathlib.Path) -> None:
         for msg in track:
             if isinstance(msg, mido.MetaMessage) and msg.type == "text":
                 rich.print(msg)
+
+
+def test_ps_project_read(shared_datadir: pathlib.Path) -> None:
+    import io
+
+    from pyzipper import WZ_AES, ZIP_STORED, AESZipFile
+
+    proj_path = shared_datadir / "test.ps_project"
+    with AESZipFile(
+        io.BytesIO(proj_path.read_bytes()), "r", compression=ZIP_STORED, encryption=WZ_AES
+    ) as zf:
+        zf.setpassword(b"a022ab39cb3b7b1de92ee441978c9e08")
+        rich.print(zf.read("config.json"))

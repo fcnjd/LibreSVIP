@@ -1,8 +1,10 @@
+# mypy: disable-error-code="misc"
 import enum
 from dataclasses import dataclass
 from typing import Annotated, Literal, Optional, Union
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, ValidationInfo, model_validator
+from typing_extensions import Self
 
 from libresvip.model.base import BaseModel
 from libresvip.utils.translation import gettext_lazy as _
@@ -44,7 +46,7 @@ class VocaloidWithDur(VocaloidBasePos):
 
 
 class VocaloidPoint(VocaloidBasePos):
-    value: Optional[Union[int, float]] = None
+    value: Optional[Union[int, float, Literal["ZeroPitch"]]] = None
 
 
 class VocaloidTimeSig(BaseModel):
@@ -75,6 +77,8 @@ class VocaloidAIExp(BaseModel):
     formant_whole: Optional[float] = Field(None, alias="formantWhole")
     formant_start: Optional[float] = Field(None, alias="formantStart")
     formant_end: Optional[float] = Field(None, alias="formantEnd")
+    vibrato_leading_depth: Optional[float] = Field(None, alias="vibratoLeadingDepth")
+    vibrato_following_depth: Optional[float] = Field(None, alias="vibratoFollowingDepth")
 
 
 class VocaloidEnabled(BaseModel):
@@ -175,6 +179,7 @@ class VocaloidMasterTrack(BaseModel):
     tempo: VocaloidTempo = Field(default_factory=VocaloidTempo)
     time_sig: VocaloidTimeSigs = Field(alias="timeSig", default_factory=VocaloidTimeSigs)
     volume: VocaloidAutomation = Field(default_factory=VocaloidAutomation)
+    main_tuning: float = Field(440, alias="mainTuning")
 
 
 class VocaloidDVQMRelease(VocaloidCompID):
@@ -192,7 +197,9 @@ class VocaloidDVQM(BaseModel):
 class VocaloidNotes(VocaloidLangID, VocaloidWithDur):
     exp: Optional[VocaloidExp] = Field(default_factory=VocaloidExp)
     ai_exp: Optional[VocaloidAIExp] = Field(None, alias="aiExp")
+    direct_pitches: Optional[list[VocaloidPoint]] = Field(None, alias="directPitches")
     is_protected: Optional[bool] = Field(False, alias="isProtected")
+    is_ai_vibrato_enabled: Optional[bool] = Field(False, alias="isAiVibratoEnabled")
     lyric: str
     number: int
     phoneme: Optional[str] = None
@@ -208,6 +215,20 @@ class VocaloidNotes(VocaloidLangID, VocaloidWithDur):
 class VocaloidWav(BaseModel):
     name: str
     original_name: Optional[str] = Field(None, alias="originalName")
+
+    @model_validator(mode="after")
+    def extract_audio(self, info: ValidationInfo) -> Self:
+        if (
+            info.context is not None
+            and info.context["extract_audio"]
+            and not hasattr(info.context["path"], "protocol")
+        ):
+            archive_wav_path = f"Project/Audio/{self.name}"
+            if not (
+                wav_path := (info.context["path"].parent / (self.original_name or self.name))
+            ).exists():
+                wav_path.write_bytes(info.context["archive_file"].read(archive_wav_path))
+        return self
 
 
 class VocaloidVoicePart(VocaloidWithDur):

@@ -1,3 +1,4 @@
+# mypy: disable-error-code="misc"
 from __future__ import annotations
 
 from enum import Enum
@@ -202,7 +203,7 @@ class OutputOptions(BaseModel):
         default=AcepLyricsLanguage.CHINESE,
         title=_("Lyrics language"),
         description=_(
-            "ACE Studio supports three languages of lyrics. This option is used to set the language of lyrics."
+            "ACE Studio supports four languages of lyrics. This option is used to set the language of lyrics."
         ),
     )
     default_consonant_length: float = Field(

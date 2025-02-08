@@ -33,6 +33,7 @@ from .model import (
     AcepParams,
     AcepProject,
     AcepTempo,
+    AcepTimeSignature,
     AcepTrack,
     AcepVocalTrack,
 )
@@ -52,23 +53,7 @@ class AceParser:
     def parse_project(self, ace_project: AcepProject) -> Project:
         project = Project()
         self.content_version = ace_project.version
-        if ace_project.time_signatures:
-            project.time_signature_list = [
-                TimeSignature(
-                    bar_index=ace_time_sig.bar_pos,
-                    numerator=ace_time_sig.numerator,
-                    denominator=ace_time_sig.denominator,
-                )
-                for ace_time_sig in ace_project.time_signatures
-            ]
-        else:
-            project.time_signature_list.append(
-                TimeSignature(
-                    bar_index=0,
-                    numerator=ace_project.beats_per_bar,
-                    denominator=4,
-                )
-            )
+        project.time_signature_list = self.parse_time_signatures(ace_project.time_signatures)
         self.first_bar_ticks = int(project.time_signature_list[0].bar_length())
         project.song_tempo_list = shift_tempo_list(
             self.parse_tempos(ace_project.tempos),
@@ -81,6 +66,17 @@ class AceParser:
             if (track := self.parse_track(ace_track)) is not None:
                 project.track_list.append(track)
         return project
+
+    @staticmethod
+    def parse_time_signatures(ace_time_sigs: list[AcepTimeSignature]) -> list[TimeSignature]:
+        return [
+            TimeSignature(
+                bar_index=ace_time_sig.bar_pos,
+                numerator=ace_time_sig.numerator,
+                denominator=ace_time_sig.denominator,
+            )
+            for ace_time_sig in ace_time_sigs
+        ]
 
     @staticmethod
     def parse_tempos(ace_tempos: list[AcepTempo]) -> list[SongTempo]:
@@ -96,9 +92,11 @@ class AceParser:
         ):
             track = InstrumentalTrack(
                 audio_file_path=ace_track.patterns[0].path,
-                offset=int(ace_track.patterns[0].pos)
-                if self.content_version < 7
-                else self.synchronizer.get_actual_ticks_from_secs(ace_track.patterns[0].pos),
+                offset=int(
+                    ace_track.patterns[0].pos
+                    if self.content_version < 7
+                    else self.synchronizer.get_actual_ticks_from_secs(ace_track.patterns[0].pos)
+                ),
             )
         elif isinstance(ace_track, AcepVocalTrack):
             track = SingingTrack(
@@ -106,15 +104,15 @@ class AceParser:
             )
             ace_note_list = []
             ace_params = AcepParams()
-            for pattern in ace_track.patterns:
-                if len(pattern.notes) == 0:
-                    continue
+            for pattern in sorted(ace_track.patterns, key=operator.attrgetter("clip_pos")):
                 ace_notes = [
                     note
                     for note in pattern.notes
                     if note.pos + pattern.pos >= 0
                     and pattern.clip_pos <= note.pos < pattern.clip_pos + pattern.clip_dur
                 ]
+                if not ace_notes:
+                    continue
                 prev_ace_note = None
                 for ace_note in ace_notes:
                     ace_note.dur = int(
@@ -133,9 +131,6 @@ class AceParser:
                 ace_note_list.extend(ace_notes)
 
                 def merge_curves(src: AcepParamCurveList, dst: AcepParamCurveList) -> None:
-                    for curve in src.root:
-                        if curve.curve_type == "anchor":
-                            curve.points2values()
                     ace_curves = [
                         curve
                         for curve in src.root
@@ -168,6 +163,17 @@ class AceParser:
                 if self.options.energy_normalization.enabled:
                     merge_curves(pattern.parameters.real_energy, ace_params.real_energy)
             ace_note_list.sort(key=operator.attrgetter("pos"))
+            ace_params.pitch_delta.root.sort(key=operator.attrgetter("offset"))
+            ace_params.breathiness.root.sort(key=operator.attrgetter("offset"))
+            ace_params.gender.root.sort(key=operator.attrgetter("offset"))
+            ace_params.energy.root.sort(key=operator.attrgetter("offset"))
+            ace_params.tension.root.sort(key=operator.attrgetter("offset"))
+            if self.options.breath_normalization.enabled:
+                ace_params.real_breathiness.root.sort(key=operator.attrgetter("offset"))
+            if self.options.tension_normalization.enabled:
+                ace_params.real_tension.root.sort(key=operator.attrgetter("offset"))
+            if self.options.energy_normalization.enabled:
+                ace_params.real_energy.root.sort(key=operator.attrgetter("offset"))
             track.note_list = [self.parse_note(ace_note) for ace_note in ace_note_list]
             track.edited_params = self.parse_params(ace_params, ace_note_list)
         else:
@@ -178,13 +184,14 @@ class AceParser:
         track.volume = 10 ** (ace_track.gain / 20)
         return track
 
-    def parse_note(self, ace_note: AcepNote, pinyin: Optional[str] = None) -> Note:
+    def parse_note(self, ace_note: AcepNote) -> Note:
         if (
             not self.options.keep_all_pronunciation
             and ace_note.language == AcepLyricsLanguage.CHINESE
-            and pinyin is None
         ):
-            pinyin = next(iter(get_pinyin_series(ace_note.lyric)), None)
+            pronunciation = next(iter(get_pinyin_series(ace_note.lyric)), None)
+        else:
+            pronunciation = None
         note = Note(
             key_number=ace_note.pitch,
             start_pos=ace_note.pos,
@@ -192,12 +199,16 @@ class AceParser:
             lyric=ace_note.lyric,
         )
         if (
-            ace_note.language == [AcepLyricsLanguage.ENGLISH, AcepLyricsLanguage.SPANISH]
+            ace_note.language in [AcepLyricsLanguage.ENGLISH, AcepLyricsLanguage.SPANISH]
             and (latin_span := ACEP_LATIN_SPAN_RE.search(note.lyric)) is not None
         ):
             span_index = int(latin_span.group(1))
             note.lyric = ACEP_LATIN_SPAN_RE.sub("", note.lyric) if span_index == 1 else "+"
-        if pinyin is None or ("-" not in ace_note.lyric and ace_note.pronunciation != pinyin):
+        if ace_note.syllable and ace_note.syllable != ace_note.freezed_default_syllable:
+            note.pronunciation = ace_note.syllable
+        elif pronunciation is None or (
+            "-" not in ace_note.lyric and ace_note.pronunciation != pronunciation
+        ):
             note.pronunciation = ace_note.pronunciation
         if ace_note.br_len > 0:
             note.head_tag = "V"
@@ -210,6 +221,8 @@ class AceParser:
                 if self.content_version < 7
                 else ace_note.head_consonants[0]
             )
+        else:
+            note.edited_phones = Phones(head_length_in_secs=0)
         return note
 
     def parse_params(self, ace_params: AcepParams, ace_note_list: list[AcepNote]) -> Params:

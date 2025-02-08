@@ -10,16 +10,16 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Language-Team: German\n"
 "Language: de_DE\n"
-"PO-Revision-Date: 2024-12-17 09:02\n"
+"PO-Revision-Date: 2024-12-19 01:03\n"
 
 msgid "Y77"
 msgstr ""
 
 msgid "Yuan77 project file"
-msgstr ""
+msgstr "Yuan77 Projektdatei"
 
 msgid "Conversion plugin for Yuan77 project file"
-msgstr ""
+msgstr "Konvertierungs-Plugin für Yuan77-Projektdateien"
 
 msgid "FlutyDeer"
 msgstr ""

@@ -143,10 +143,7 @@ class AceGenerator:
                             buffer[0].start_pos - 240,
                         )
                     )
-                    self.ace_note_list = []
-                    for note in buffer:
-                        if note.lyric:
-                            self.generate_note(note)
+                    self.ace_note_list = [self.generate_note(note) for note in buffer if note.lyric]
                     vocal_pattern = AcepVocalPattern(
                         pos=self.pattern_start,
                         dur=round(buffer[-1].end_pos) - self.pattern_start,
@@ -197,21 +194,22 @@ class AceGenerator:
             )
             notes[i].br_len -= actual_breath
 
-    def generate_note(self, note: Note, pinyin: Optional[str] = None) -> None:
-        if self.options.lyric_language == AcepLyricsLanguage.CHINESE and not pinyin:
-            pinyin = next(iter(get_pinyin_series(note.lyric)), None)
+    def generate_note(self, note: Note) -> AcepNote:
         ace_note = AcepNote(
             pos=round(note.start_pos) - self.pattern_start,
+            dur=note.length,
             pitch=note.key_number,
             lyric=note.lyric,
             language=self.options.lyric_language,
         )
-        ace_note.dur = round(note.end_pos - note.start_pos)
 
         if all(symbol not in note.lyric for symbol in ["-", "+"]):
-            ace_note.pronunciation = (
-                note.pronunciation if note.pronunciation is not None else pinyin or ""
-            )
+            if self.options.lyric_language == AcepLyricsLanguage.CHINESE:
+                pronunciation = next(iter(get_pinyin_series(note.lyric)), None)
+            else:
+                pronunciation = None
+            if note.pronunciation is not None and note.pronunciation != pronunciation:
+                ace_note.syllable = note.pronunciation
             if note.edited_phones is not None and note.edited_phones.head_length_in_secs >= 0:
                 ace_note.head_consonants = [note.edited_phones.head_length_in_secs]
             elif self.options.default_consonant_length:
@@ -243,7 +241,7 @@ class AceGenerator:
                 breath_start_in_secs
             )
             ace_note.br_len = round(note.start_pos - breath_start_in_ticks)
-        self.ace_note_list.append(ace_note)
+        return ace_note
 
     @staticmethod
     def linear_transform(

@@ -13,7 +13,6 @@ import shutil
 import textwrap
 import traceback
 import webbrowser
-import zipfile
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from operator import not_
@@ -43,7 +42,6 @@ from nicegui.events import (
 from nicegui.storage import request_contextvar
 from pydantic import RootModel, create_model
 from pydantic.config import JsonValue
-from pydantic.dataclasses import dataclass
 from pydantic_core import PydanticUndefined
 from pydantic_extra_types.color import Color
 from starlette.exceptions import HTTPException
@@ -53,7 +51,7 @@ from typing_extensions import ParamSpec
 from upath import UPath
 
 import libresvip
-from libresvip.core.compat import as_file
+from libresvip.core.compat import ZipFile, as_file
 from libresvip.core.config import (
     ConversionMode,
     DarkMode,
@@ -87,7 +85,6 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
-@dataclass
 class LibreSvipWebUserSettings(LibreSvipBaseUISettings):
     def __post_init__(self) -> None:
         self.lyric_replace_rules.setdefault("default", [])
@@ -950,7 +947,7 @@ def page_layout(lang: Optional[str] = None) -> None:
                 return None
             if self._conversion_mode == ConversionMode.SPLIT:
                 buffer = io.BytesIO()
-                with zipfile.ZipFile(buffer, "w") as zip_file:
+                with ZipFile(buffer, "w") as zip_file:
                     for child_file in task.output_path.iterdir():
                         if not child_file.is_file():
                             continue
@@ -981,7 +978,7 @@ def page_layout(lang: Optional[str] = None) -> None:
                 filename = next(iter(self.files_to_convert))
                 return self._export_one(filename)
             buffer = io.BytesIO()
-            with zipfile.ZipFile(buffer, "w") as zip_file:
+            with ZipFile(buffer, "w") as zip_file:
                 for task in self.files_to_convert.values():
                     if task.success:
                         if task.output_path.is_dir():
@@ -1440,7 +1437,7 @@ def page_layout(lang: Optional[str] = None) -> None:
                                         lambda row: row["id"] == event.args["id"],
                                     )
                                 ) != -1:
-                                    table.remove_rows(rows[row_idx])
+                                    table.remove_row(rows[row_idx])
 
                             table.on("delete", delete_rule)
 
@@ -1517,7 +1514,7 @@ def page_layout(lang: Optional[str] = None) -> None:
                                     elif mode_value == LyricsReplaceMode.ALPHABETIC.value:
                                         pattern_prefix = r"(?<=^|\b)"
                                         pattern_suffix = r"(?=$|\b)"
-                                    table.add_rows(
+                                    table.add_row(
                                         {
                                             "id": rows[-1]["id"] + 1 if len(rows) else 1,
                                             "mode": mode_value,
@@ -1966,7 +1963,7 @@ def page_layout(lang: Optional[str] = None) -> None:
                 js_handler=f"""(event) => {{
                 for (let file of event.dataTransfer.files) {{
                     let file_name = file.name
-                    post_form('{uploader.props['url']}', {{
+                    post_form('{uploader.props["url"]}', {{
                         file_name: file
                     }})
                 }}
@@ -2039,7 +2036,7 @@ def page_layout(lang: Optional[str] = None) -> None:
                 js_handler=f"""(event) => {{
                 for (let file of event.dataTransfer.files) {{
                     let file_name = file.name
-                    post_form('{uploader.props['url']}', {{
+                    post_form('{uploader.props["url"]}', {{
                         file_name: file
                     }})
                 }}
@@ -2219,7 +2216,7 @@ def page_layout(lang: Optional[str] = None) -> None:
                             for (const fileHandle of fileHandles) {{
                                 const file = await fileHandle.getFile();
                                 let file_name = file.name
-                                post_form('{uploader.props['url']}', {{
+                                post_form('{uploader.props["url"]}', {{
                                     file_name: file
                                 }})
                             }}

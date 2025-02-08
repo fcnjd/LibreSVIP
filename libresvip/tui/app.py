@@ -1,9 +1,7 @@
 import enum
 import io
 import pathlib
-import platform
 import traceback
-import zipfile
 from collections.abc import Coroutine
 from dataclasses import dataclass
 from typing import Any, Optional, Union, cast, get_args, get_type_hints
@@ -29,7 +27,6 @@ from textual.widgets import (
     Button,
     Collapsible,
     ContentSwitcher,
-    DirectoryTree,
     Footer,
     Header,
     Input,
@@ -50,12 +47,12 @@ from textual.widgets import (
     Tabs,
 )
 from textual.widgets._list_item import ListItem
-from textual.widgets.directory_tree import DirEntry
 from textual.widgets.selection_list import Selection
-from typing_extensions import ParamSpec
+from textual_fspicker import FileOpen, SelectDirectory
 from upath import UPath
 
 import libresvip
+from libresvip.core.compat import ZipFile
 from libresvip.core.config import DarkMode, Language, save_settings, settings
 from libresvip.core.warning_types import CatchWarnings
 from libresvip.extension.manager import get_translation, middleware_manager, plugin_manager
@@ -63,8 +60,6 @@ from libresvip.model.base import BaseComplexModel, Project
 from libresvip.utils import translation
 from libresvip.utils.text import supported_charset_names
 from libresvip.utils.translation import gettext_lazy as _
-
-P = ParamSpec("P")
 
 translation.singleton_translation = get_translation()
 
@@ -80,55 +75,6 @@ class LibreSVIPCommandProvider(Provider):
                     callback,
                     help=help_text,
                 )
-
-
-class RootDirectoryTree(Vertical):
-    def __init__(self, root: Union[str, pathlib.Path], *args: P.args, **kwargs: P.kwargs) -> None:
-        self.root = root
-        self.tree_id = kwargs.pop("id", None)
-        super().__init__(*args, **kwargs)
-
-    def get_logical_drive_strings(self) -> list[str]:
-        import ctypes.wintypes
-
-        # adapted from winappdbg
-        _get_logical_drive_strings_w = ctypes.windll.kernel32.GetLogicalDriveStringsW  # type: ignore[attr-defined]
-        _get_logical_drive_strings_w.argtypes = [ctypes.wintypes.DWORD, ctypes.wintypes.LPWSTR]
-        _get_logical_drive_strings_w.restype = ctypes.wintypes.DWORD
-
-        buffer_len = (4 * 26) + 1  # "X:\\\0" from A to Z plus empty string
-        buffer = ctypes.create_unicode_buffer("", buffer_len)
-        _get_logical_drive_strings_w(buffer_len, buffer)
-        drive_strings = []
-        string_p = ctypes.addressof(buffer)
-        sizeof_wchar = ctypes.sizeof(ctypes.c_wchar)
-        while True:
-            string_v = ctypes.wstring_at(string_p)
-            if string_v == "":
-                break
-            drive_strings.append(string_v)
-            string_p += (len(string_v) * sizeof_wchar) + sizeof_wchar
-        return drive_strings
-
-    def compose(self) -> ComposeResult:
-        if platform.system() == "Windows":
-            with Horizontal(classes="top-pane row"):
-                yield Label(_("Select a drive"), classes="text-middle")
-                yield Select(
-                    [(drive, drive) for drive in self.get_logical_drive_strings()],
-                    prompt="",
-                    id="drive-select",
-                )
-        yield DirectoryTree(self.root, id=self.tree_id)
-
-    @on(Select.Changed, "#drive-select")
-    def on_drive_select(self, event: Select.Changed) -> None:
-        if event.value != Select.BLANK:
-            self.root = pathlib.Path(event.value)
-            directory_tree = self.query_one(DirectoryTree)
-            directory_tree.reset_node(
-                directory_tree.root, event.value, DirEntry(directory_tree.PATH(self.root))
-            )
 
 
 class PluginInfoScreen(Screen[None]):
@@ -147,8 +93,8 @@ class PluginInfoScreen(Screen[None]):
         plugin_info = plugin_manager.plugin_registry[self.plugin_id]
         with Vertical():
             yield Label(plugin_info.name, classes="title")
-            yield Label(f'{_("Version: ")}{plugin_info.version}')
-            yield Link(f'{_("Author: ")}{_(plugin_info.author)}', url=plugin_info.website)
+            yield Label(f"{_('Version: ')}{plugin_info.version}")
+            yield Link(f"{_('Author: ')}{_(plugin_info.author)}", url=plugin_info.website)
             yield Label(_("Introduction"))
             yield Markdown(_(plugin_info.description))
             with Horizontal():
@@ -183,28 +129,6 @@ class TaskLogScreen(Screen[None]):
                 yield Label("", classes="fill-width")
                 yield Button(_("Copy to clipboard"), id="copy", variant="primary")
                 yield Button(_("Close"), id="close", variant="success")
-
-
-class SelectImportProjectScreen(Screen[pathlib.Path]):
-    def compose(self) -> ComposeResult:
-        yield Header(icon="☰")
-        yield Footer()
-        yield RootDirectoryTree("/", id="file_selector")
-
-    @on(DirectoryTree.FileSelected, "#file_selector")
-    def on_directory_selected(self, event: DirectoryTree.FileSelected) -> None:
-        self.dismiss(event.path)
-
-
-class SelectOutputDirectoryScreen(Screen[pathlib.Path]):
-    def compose(self) -> ComposeResult:
-        yield Header(icon="☰")
-        yield Footer()
-        yield RootDirectoryTree("/", id="directory_selector")
-
-    @on(DirectoryTree.DirectorySelected, "#directory_selector")
-    def on_directory_selected(self, event: DirectoryTree.DirectorySelected) -> None:
-        self.dismiss(event.path)
 
 
 class SelectFormats(Vertical):
@@ -309,9 +233,7 @@ class ColorValidator(Validator):
 
 
 class OptionsForm(ListView):
-    def __init__(
-        self, option_class: Optional[type[BaseModel]], *args: P.args, **kwargs: P.kwargs
-    ) -> None:
+    def __init__(self, option_class: Optional[type[BaseModel]], *args: Any, **kwargs: Any) -> None:
         self.option_class = option_class
         self.option_dict = {} if option_class is None else option_class().model_dump(mode="json")
         super().__init__(*args, **kwargs)
@@ -420,8 +342,8 @@ class TaskRow(Right):
         stem: str,
         ext: str,
         arrow_symbol: str,
-        *args: P.args,
-        **kwargs: P.kwargs,
+        *args: Any,
+        **kwargs: Any,
     ) -> None:
         self.input_path = input_path
         self.stem = stem
@@ -558,9 +480,12 @@ class TUIApp(App[None]):
     @on(Button.Pressed, "#add_task")
     @work
     async def handle_add_task(self, event: Button.Pressed) -> None:
-        selected_path = await self.push_screen_wait(
-            SelectImportProjectScreen(),
-        )
+        if path_str := await self.push_screen_wait(
+            FileOpen("/", title=_("Open")),
+        ):
+            selected_path = pathlib.Path(path_str)
+        else:
+            return
         ext = selected_path.suffix.removeprefix(".").lower()
         if ext in plugin_manager.plugin_registry and settings.auto_detect_input_format:
             settings.last_input_format = ext
@@ -701,7 +626,7 @@ class TUIApp(App[None]):
             if output_path.is_file():
                 buffer.write(output_path.read_bytes())
             else:
-                with zipfile.ZipFile(buffer, "w") as zip_file:
+                with ZipFile(buffer, "w") as zip_file:
                     for child_file in output_path.iterdir():
                         if not child_file.is_file():
                             continue
@@ -767,10 +692,11 @@ class TUIApp(App[None]):
     @on(Button.Pressed, "#change_output_directory")
     @work
     async def handle_change_output_directory(self, event: Button.Pressed) -> None:
-        settings.save_folder = await self.push_screen_wait(
-            SelectOutputDirectoryScreen(),
-        )
-        self.query_one("#output_directory").update(str(settings.save_folder))
+        if directory := await self.push_screen_wait(
+            SelectDirectory("/", title=_("Select directory")),
+        ):
+            settings.save_folder = pathlib.Path(directory)
+            self.query_one("#output_directory").update(str(directory))
 
     @on(SelectionList.SelectedChanged)
     def handle_plugins_changed(self, selected: SelectionList.SelectedChanged) -> None:
@@ -934,7 +860,7 @@ class TUIApp(App[None]):
                     url="https://github.com/SoulMelody/LibreSVIP",
                     tooltip=_("Repo URL"),
                 )
-                yield Label(f'{_("Version: ")}{libresvip.__version__} 🔖')
+                yield Label(f"{_('Version: ')}{libresvip.__version__} 🔖")
                 yield Link(
                     _("Author: SoulMelody") + " 🌐",
                     url="https://space.bilibili.com/175862486",

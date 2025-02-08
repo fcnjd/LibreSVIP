@@ -2,7 +2,6 @@ import enum
 import io
 import pathlib
 import traceback
-import zipfile
 from typing import Optional, get_args, get_type_hints
 
 import flet as ft
@@ -13,7 +12,8 @@ from pydantic_extra_types.color import Color
 from upath import UPath
 
 import libresvip
-from libresvip.core.compat import as_file
+from libresvip.core.compat import ZipFile, as_file
+from libresvip.core.config import settings
 from libresvip.core.constants import res_dir
 from libresvip.core.warning_types import CatchWarnings
 from libresvip.extension.manager import get_translation, middleware_manager, plugin_manager
@@ -22,38 +22,36 @@ from libresvip.utils import translation
 from libresvip.utils.translation import gettext_lazy as _
 
 
-async def main(page: ft.Page) -> None:
+def main(page: ft.Page) -> None:
     page.title = "LibreSVIP"
     page.window.width = 600
     page.window.height = 700
+    page.window.title_bar_hidden = True
+    page.window.title_bar_buttons_hidden = True
 
     with as_file(res_dir / "libresvip.ico") as icon:
         page.window.icon = str(icon)
 
-    if not (await page.client_storage.contains_key_async("dark_mode")):
-        await page.client_storage.set_async("dark_mode", "System")
-    page.theme_mode = ft.ThemeMode(
-        (await page.client_storage.get_async("dark_mode") or "System").lower()
-    )
+    if not page.client_storage.contains_key("dark_mode"):
+        page.client_storage.set("dark_mode", "System")
+    page.theme_mode = ft.ThemeMode((page.client_storage.get("dark_mode") or "System").lower())
 
     def change_theme(dark_mode: str) -> None:
         page.theme_mode = ft.ThemeMode(dark_mode.lower())
         page.client_storage.set("dark_mode", dark_mode)
         page.update()
 
-    if not (await page.client_storage.contains_key_async("language")):
-        await page.client_storage.set_async("language", "en_US")
-    translation.singleton_translation = get_translation(
-        await page.client_storage.get_async("language")
-    )
+    if not (page.client_storage.contains_key("language")):
+        page.client_storage.set("language", "en_US")
+    translation.singleton_translation = get_translation(page.client_storage.get("language"))
 
     def change_language(lang: str) -> None:
         page.client_storage.set("language", lang)
         translation.singleton_translation = get_translation(lang)
         page.go(f"/?lang={lang}")
 
-    if not (await page.client_storage.contains_key_async("save_folder")):
-        await page.client_storage.set_async("save_folder", ".")
+    if not (page.client_storage.contains_key("save_folder")):
+        page.client_storage.set("save_folder", ".")
     save_folder_text_field = ft.Ref[ft.TextField]()
     temp_path = UPath("memory:/")
 
@@ -158,9 +156,8 @@ async def main(page: ft.Page) -> None:
                 fields.append(
                     ft.IconButton(
                         ft.Icons.HELP_OUTLINE_OUTLINED,
-                        tooltip=ft.Tooltip(
-                            _(field_info.description), trigger_mode=ft.TooltipTriggerMode.TAP
-                        ),
+                        mouse_cursor=ft.MouseCursor.HELP,
+                        tooltip=ft.Tooltip(_(field_info.description)),
                         col=2,
                     )
                 )
@@ -246,45 +243,56 @@ async def main(page: ft.Page) -> None:
                 )
                 page.open(banner)
 
-            task_log_view: ft.View = ft.View(
-                "/task_log",
-                appbar=ft.AppBar(
-                    title=ft.Text(_("Task log")),
-                    bgcolor=ft.Colors.SURFACE,
-                    leading=ft.IconButton(
-                        ft.Icons.ARROW_BACK_OUTLINED,
-                        tooltip=_("Back"),
-                        on_click=lambda _: view_pop(task_log_view),
+            page.views.append(
+                ft.View(
+                    "/task_log",
+                    appbar=ft.AppBar(
+                        title=ft.Text(_("Task log")),
+                        bgcolor=ft.Colors.SURFACE,
+                        leading=ft.IconButton(
+                            ft.Icons.ARROW_BACK_OUTLINED,
+                            tooltip=_("Back"),
+                            on_click=lambda _: view_pop(None),
+                        ),
                     ),
-                ),
-                controls=[
-                    ft.Column(
-                        [
-                            ft.TextField(
-                                value=list_tile.data["log_text"],
-                                multiline=True,
-                                max_lines=24,
-                                autofocus=True,
-                            ),
-                            ft.Row(
-                                [
-                                    ft.ElevatedButton(
-                                        text=_("Copy to clipboard"),
-                                        on_click=copy_log_text,
-                                    )
-                                ],
-                                alignment=ft.MainAxisAlignment.END,
-                            ),
-                        ],
-                    )
-                ],
+                    controls=[
+                        ft.Column(
+                            [
+                                ft.Row(
+                                    [
+                                        ft.ElevatedButton(
+                                            text=_("Copy to clipboard"),
+                                            on_click=copy_log_text,
+                                        )
+                                    ],
+                                    alignment=ft.MainAxisAlignment.END,
+                                ),
+                                ft.TextField(
+                                    value=list_tile.data["log_text"],
+                                    multiline=True,
+                                    max_lines=24,
+                                    autofocus=True,
+                                ),
+                            ],
+                        )
+                    ],
+                )
             )
-            page.views.append(task_log_view)
             page.update()
 
     def on_files_selected(e: ft.FilePickerResultEvent) -> None:
         if e.files:
             auto_detect_input_format = page.client_storage.get("auto_detect_input_format")
+            if page.web:
+                uf = [
+                    ft.FilePickerUploadFile(
+                        f.name,
+                        upload_url=page.get_upload_url(f.name, 600),
+                    )
+                    for f in e.files
+                ]
+                file_picker.upload(uf)
+                return
             for file in e.files:
                 last_input_format = page.client_storage.get("last_input_format")
                 file_path = pathlib.Path(file.path)
@@ -334,38 +342,81 @@ async def main(page: ft.Page) -> None:
             page.update()
         if e.path:
             page.client_storage.set("save_folder", e.path)
-            save_folder_text_field.current.value = e.path
-            save_folder_text_field.current.update()
+            if save_folder_text_field.current is not None:
+                save_folder_text_field.current.value = e.path
+                save_folder_text_field.current.update()
 
-    if not (await page.client_storage.contains_key_async("auto_detect_input_format")):
-        await page.client_storage.set_async("auto_detect_input_format", True)
+    if not (page.client_storage.contains_key("auto_detect_input_format")):
+        page.client_storage.set("auto_detect_input_format", True)
 
     def change_auto_detect_input_format(e: ft.ControlEvent) -> None:
         page.client_storage.set("auto_detect_input_format", e.control.value)
 
-    if not (await page.client_storage.contains_key_async("reset_tasks_on_input_change")):
-        await page.client_storage.set_async("reset_tasks_on_input_change", True)
+    if not (page.client_storage.contains_key("reset_tasks_on_input_change")):
+        page.client_storage.set("reset_tasks_on_input_change", True)
 
     def change_reset_tasks_on_input_change(e: ft.ControlEvent) -> None:
         page.client_storage.set("reset_tasks_on_input_change", e.control.value)
 
-    if not (await page.client_storage.contains_key_async("max_track_count")):
-        await page.client_storage.set_async("max_track_count", 1)
+    if not (page.client_storage.contains_key("max_track_count")):
+        page.client_storage.set("max_track_count", 1)
 
     def change_max_track_count(e: ft.ControlEvent) -> None:
         page.client_storage.set("max_track_count", e.control.value)
 
-    file_picker = ft.FilePicker(on_result=on_files_selected)
+    def on_upload_progress(e: ft.FilePickerUploadEvent) -> None:
+        if e.progress == 1.0:
+            auto_detect_input_format = page.client_storage.get("auto_detect_input_format")
+            last_input_format = page.client_storage.get("last_input_format")
+            file_path = settings.save_folder / e.file_name
+            suffix = file_path.suffix.lower().removeprefix(".")
+            if (
+                suffix != last_input_format
+                and auto_detect_input_format
+                and suffix in plugin_manager.plugin_registry
+            ):
+                set_last_input_format(suffix)
+            task_list_view.current.controls.append(
+                ft.ListTile(
+                    leading=ft.Stack(
+                        [
+                            ft.Icon(
+                                ft.Icons.ACCESS_TIME_FILLED_OUTLINED,
+                                color=ft.colors.GREY_400,
+                            ),
+                            ft.ProgressRing(visible=False),
+                        ]
+                    ),
+                    title=ft.Text(e.file_name),
+                    subtitle=ft.Text(file_path.stem),
+                    trailing=ft.PopupMenuButton(
+                        items=[
+                            ft.PopupMenuItem(
+                                icon=ft.icons.REMOVE_RED_EYE_OUTLINED,
+                                text=_("View Log"),
+                                on_click=show_task_log,
+                            ),
+                            ft.PopupMenuItem(
+                                icon=ft.icons.EDIT,
+                                text=_("Rename"),
+                                on_click=open_rename_dialog,
+                            ),
+                            ft.PopupMenuItem(
+                                icon=ft.icons.DELETE_OUTLINE,
+                                text=_("Remove"),
+                                on_click=remove_task,
+                            ),
+                        ],
+                        tooltip=_("Actions"),
+                    ),
+                    data={"path": file_path, "log_text": ""},
+                )
+            )
+            task_list_view.current.update()
+
+    file_picker = ft.FilePicker(on_result=on_files_selected, on_upload=on_upload_progress)
     permission_handler = ft.PermissionHandler()
     page.overlay.extend([file_picker, permission_handler])
-
-    def click_navigation_bar(event: ft.ControlEvent) -> None:
-        if event.control.selected_index == 0:
-            page.go("/")
-        elif event.control.selected_index == 1:
-            page.go("/settings")
-        else:
-            page.go("/about")
 
     def check_permission(e: ft.ControlEvent) -> None:
         result = permission_handler.check_permission(e.control.data)
@@ -430,14 +481,19 @@ async def main(page: ft.Page) -> None:
             (input_format := page.client_storage.get("last_input_format")) is None
             or (output_format := page.client_storage.get("last_output_format")) is None
             or (max_track_count := page.client_storage.get("max_track_count")) is None
+            or (
+                save_folder_str := (
+                    settings.save_folder if page.web else page.client_storage.get("save_folder")
+                )
+            )
+            is None
             or list_tile.leading is None
             or list_tile.subtitle is None
             or list_tile.data is None
             or list_tile.trailing is None
-            or save_folder_text_field.current.value is None
         ):
             return
-        save_folder = pathlib.Path(save_folder_text_field.current.value)
+        save_folder = pathlib.Path(save_folder_str)
         list_tile.data["log_text"] = ""
         list_tile.leading.controls[0].visible = False
         list_tile.leading.controls[1].visible = True
@@ -549,7 +605,7 @@ async def main(page: ft.Page) -> None:
             if output_path.is_file():
                 buffer.write(output_path.read_bytes())
             else:
-                with zipfile.ZipFile(buffer, "w") as zip_file:
+                with ZipFile(buffer, "w") as zip_file:
                     for child_file in output_path.iterdir():
                         if not child_file.is_file():
                             continue
@@ -562,6 +618,8 @@ async def main(page: ft.Page) -> None:
             else:
                 save_path = save_folder / f"{list_tile.subtitle.value}.zip"
             save_path.write_bytes(buffer.getvalue())
+            if page.web:
+                page.launch_url(f"/download/{save_path.name}")
             if w.output:
                 list_tile.leading.controls[0].name = ft.Icons.WARNING_OUTLINED
                 list_tile.leading.controls[0].color = ft.Colors.YELLOW_400
@@ -577,27 +635,39 @@ async def main(page: ft.Page) -> None:
         list_tile.trailing.items[-1].disabled = False
         list_tile.update()
 
-    def convert_all(e: ft.ControlEvent) -> None:
-        if conversion_mode_select.current.value != "merge":
-            for list_tile in task_list_view.current.controls:
-                page.run_thread(convert_one, list_tile)
-        elif len(task_list_view.current.controls) > 0:
-            page.run_thread(
-                convert_one,
-                task_list_view.current.controls[0],
-                *task_list_view.current.controls[1:],
-            )
-
     def on_route_change(event: ft.RouteChangeEvent) -> None:
         page.views.clear()
+
+        def click_navigation_bar(event: Optional[ft.ControlEvent]) -> None:
+            for index, p in enumerate(pages.controls):
+                p.visible = index == bottom_nav_bar.selected_index
+            page.update()
+
+        def convert_all(e: ft.ControlEvent) -> None:
+            bottom_nav_bar.selected_index = 1
+            click_navigation_bar(None)
+            if conversion_mode_select.current.value != "merge":
+                for list_tile in task_list_view.current.controls:
+                    page.run_thread(convert_one, list_tile)
+            elif len(task_list_view.current.controls) > 0:
+                page.run_thread(
+                    convert_one,
+                    task_list_view.current.controls[0],
+                    *task_list_view.current.controls[1:],
+                )
+
         bottom_nav_bar = ft.NavigationBar(
             on_change=click_navigation_bar,
             destinations=[
-                ft.NavigationBarDestination(icon=ft.Icons.LOOP_OUTLINED, label=_("Converter")),
                 ft.NavigationBarDestination(
-                    icon=ft.Icons.SETTINGS_APPLICATIONS_OUTLINED, label=_("Basic Settings")
+                    icon=ft.Icons.SWAP_HORIZ_OUTLINED, label=_("Select File Formats")
                 ),
-                ft.NavigationBarDestination(icon=ft.Icons.HELP_OUTLINED, label=_("About")),
+                ft.NavigationBarDestination(
+                    icon=ft.Icons.TASK_ALT_OUTLINED, label=_("Conversion mode & Task list")
+                ),
+                ft.NavigationBarDestination(
+                    icon=ft.Icons.SETTINGS_OUTLINED, label=_("Advanced Options")
+                ),
             ],
         )
         switch_theme_btn = ft.PopupMenuButton(
@@ -630,21 +700,61 @@ async def main(page: ft.Page) -> None:
                 ft.PopupMenuItem(text="Deutsch", on_click=lambda _: change_language("de_DE")),
             ],
         )
-        if event.route.partition("?")[0] == "/":
+        window_buttons = []
+        if page.platform not in [ft.PagePlatform.IOS, ft.PagePlatform.ANDROID] and not page.web:
+            maximize_button = ft.Ref[ft.IconButton]()
 
-            def swap_formats(e: ft.ControlEvent) -> None:
-                last_output_format, last_input_format = (
-                    output_select.current.value,
-                    input_select.current.value,
-                )
-                set_last_output_format(last_input_format)
-                set_last_input_format(last_output_format)
+            def on_minimize_click(e: ft.ControlEvent) -> None:
+                page.window.minimized = True
                 page.update()
 
-            def show_plugin_info(control: ft.Ref[ft.Dropdown]) -> None:
-                if control.current.value:
-                    plugin_obj = plugin_manager.plugin_registry[control.current.value]
-                    plugin_info_view: ft.View = ft.View(
+            def on_maximize_click(e: ft.ControlEvent) -> None:
+                page.window.maximized = not page.window.maximized
+                page.update()
+                if page.window.maximized:
+                    maximize_button.current.icon = ft.Icons.CLOSE_FULLSCREEN_OUTLINED
+                    maximize_button.current.tooltip = _("Restore")
+                else:
+                    maximize_button.current.icon = ft.Icons.OPEN_IN_FULL_OUTLINED
+                    maximize_button.current.tooltip = _("Maximize")
+                maximize_button.current.update()
+
+            window_buttons.extend(
+                [
+                    ft.IconButton(
+                        icon=ft.Icons.MINIMIZE_OUTLINED,
+                        tooltip=_("Minimize"),
+                        on_click=on_minimize_click,
+                    ),
+                    ft.IconButton(
+                        ref=maximize_button,
+                        icon=ft.Icons.OPEN_IN_FULL_OUTLINED,
+                        tooltip=_("Maximize"),
+                        on_click=on_maximize_click,
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.CLOSE_OUTLINED,
+                        hover_color=ft.Colors.RED_400,
+                        tooltip=_("Close"),
+                        on_click=lambda _: page.window.close(),
+                    ),
+                ]
+            )
+
+        def swap_formats(e: ft.ControlEvent) -> None:
+            last_output_format, last_input_format = (
+                output_select.current.value,
+                input_select.current.value,
+            )
+            set_last_output_format(last_input_format)
+            set_last_input_format(last_output_format)
+            page.update()
+
+        def show_plugin_info(control: ft.Ref[ft.Dropdown]) -> None:
+            if control.current.value:
+                plugin_obj = plugin_manager.plugin_registry[control.current.value]
+                page.views.append(
+                    ft.View(
                         "/plugin_info",
                         appbar=ft.AppBar(
                             title=ft.Text(plugin_obj.name),
@@ -653,7 +763,7 @@ async def main(page: ft.Page) -> None:
                             leading=ft.IconButton(
                                 ft.Icons.ARROW_BACK_OUTLINED,
                                 tooltip=_("Back"),
-                                on_click=lambda _: view_pop(plugin_info_view),
+                                on_click=lambda _: view_pop(None),
                             ),
                         ),
                         controls=[
@@ -712,10 +822,11 @@ async def main(page: ft.Page) -> None:
                             )
                         ],
                     )
-                    page.views.append(plugin_info_view)
-                    page.update()
+                )
+                page.update()
 
-            pages = [
+        pages = ft.Stack(
+            [
                 ft.Column(
                     [
                         ft.ResponsiveRow(
@@ -776,6 +887,28 @@ async def main(page: ft.Page) -> None:
                         ),
                     ],
                     visible=True,
+                ),
+                ft.Column(
+                    [
+                        ft.Dropdown(
+                            ref=conversion_mode_select,
+                            value="direct",
+                            label=_("Conversion mode"),
+                            options=[
+                                ft.dropdown.Option("direct", _("Direct")),
+                                ft.dropdown.Option("split", _("Split")),
+                                ft.dropdown.Option("merge", _("Merge")),
+                            ],
+                        ),
+                        ft.ListView(
+                            ref=task_list_view,
+                            expand=1,
+                            spacing=10,
+                            auto_scroll=True,
+                            padding=ft.padding.symmetric(vertical=10),
+                        ),
+                    ],
+                    visible=False,
                 ),
                 ft.Column(
                     [
@@ -852,57 +985,39 @@ async def main(page: ft.Page) -> None:
                     height=400,
                     visible=False,
                 ),
-                ft.Column(
-                    [
-                        ft.Dropdown(
-                            ref=conversion_mode_select,
-                            value="direct",
-                            label=_("Conversion mode"),
-                            options=[
-                                ft.dropdown.Option("direct", _("Direct")),
-                                ft.dropdown.Option("split", _("Split")),
-                                ft.dropdown.Option("merge", _("Merge")),
-                            ],
-                        ),
-                        ft.ListView(
-                            ref=task_list_view,
-                            expand=1,
-                            spacing=10,
-                            auto_scroll=True,
-                            padding=ft.padding.symmetric(vertical=10),
-                        ),
-                    ],
-                    visible=False,
-                ),
             ]
+        )
 
-            def select_page(e: ft.ControlEvent) -> None:
-                for index, p in enumerate(pages):
-                    p.visible = index == drawer.selected_index
-                drawer.open = False
-                page.update()
+        def select_page(e: ft.ControlEvent) -> None:
+            if drawer.selected_index == 0:
+                page.go("/")
+            elif drawer.selected_index == 1:
+                page.go("/settings")
+            else:
+                page.go("/about")
 
-            drawer = ft.NavigationDrawer(
-                controls=[
-                    ft.NavigationDrawerDestination(
-                        icon=ft.Icons.SWAP_HORIZ_OUTLINED, label=_("Select File Formats")
-                    ),
-                    ft.NavigationDrawerDestination(
-                        icon=ft.Icons.SETTINGS_OUTLINED,
-                        label=_("Advanced Options"),
-                    ),
-                    ft.NavigationDrawerDestination(
-                        icon=ft.Icons.TASK_ALT_OUTLINED,
-                        label=_("Conversion mode & Task list"),
-                    ),
-                ],
-                on_change=select_page,
-            )
+        drawer = ft.NavigationDrawer(
+            controls=[
+                ft.NavigationDrawerDestination(icon=ft.Icons.LOOP_OUTLINED, label=_("Converter")),
+                ft.NavigationDrawerDestination(
+                    icon=ft.Icons.SETTINGS_APPLICATIONS_OUTLINED,
+                    label=_("Basic Settings"),
+                ),
+                ft.NavigationDrawerDestination(
+                    icon=ft.Icons.HELP_OUTLINED,
+                    label=_("About"),
+                ),
+            ],
+            on_change=select_page,
+        )
 
-            view = ft.View(
+        page.views.append(
+            ft.View(
                 "/",
                 appbar=ft.AppBar(
-                    title=ft.Text("LibreSVIP"),
+                    title=ft.WindowDragArea(
+                        ft.Row([ft.Text("LibreSVIP")], expand=True), expand=True
+                    ),
                     leading=ft.IconButton(
                         ft.Icons.MENU_OUTLINED, on_click=lambda _: page.open(drawer)
                     ),
@@ -917,6 +1032,7 @@ async def main(page: ft.Page) -> None:
                         ),
                         switch_theme_btn,
                         switch_language_btn,
+                        *window_buttons,
                     ],
                 ),
                 navigation_bar=bottom_nav_bar,
@@ -926,146 +1042,162 @@ async def main(page: ft.Page) -> None:
                     on_click=convert_all,
                 ),
                 drawer=drawer,
-                controls=[
-                    ft.Column(pages, alignment=ft.MainAxisAlignment.START, expand=True),
-                ],
+                controls=[pages],
             )
-            page.views.append(view)
-        elif event.route == "/settings":
-            view = ft.View(
-                appbar=ft.AppBar(
-                    title=ft.Text(_("Basic Settings")),
-                    center_title=True,
-                    bgcolor=ft.Colors.SURFACE,
-                    actions=[switch_theme_btn, switch_language_btn],
-                ),
-                controls=[
-                    ft.ResponsiveRow(
-                        [
-                            ft.Switch(
-                                _("Auto detect import format"),
-                                value=page.client_storage.get("auto_detect_input_format"),
-                                col=12,
-                                on_change=change_auto_detect_input_format,
-                            ),
-                            ft.Switch(
-                                _("Reset list when import format changed"),
-                                value=page.client_storage.get("reset_tasks_on_input_change"),
-                                col=12,
-                                on_change=change_reset_tasks_on_input_change,
-                            ),
-                            ft.Text(_("Max track count"), col=4),
-                            ft.Slider(
-                                value=page.client_storage.get("max_track_count"),
-                                min=1,
-                                max=100,
-                                divisions=100,
-                                label="{value}",
-                                col=8,
-                                on_change=change_max_track_count,
-                            ),
-                            ft.TextField(
-                                ref=save_folder_text_field,
-                                label=_("Output Folder"),
-                                value=page.client_storage.get("save_folder"),
-                                col=10,
-                            ),
-                            ft.IconButton(
-                                ft.Icons.FOLDER_OPEN_OUTLINED,
-                                tooltip=_("Change Output Directory"),
-                                col=2,
-                                on_click=lambda e: file_picker.get_directory_path(
-                                    _("Change Output Directory")
+        )
+        if event.route == "/settings":
+            page.views.append(
+                ft.View(
+                    appbar=ft.AppBar(
+                        title=ft.WindowDragArea(
+                            ft.Row([ft.Text(_("Basic Settings"))], expand=True), expand=True
+                        ),
+                        center_title=True,
+                        bgcolor=ft.Colors.SURFACE,
+                        actions=[switch_theme_btn, switch_language_btn, *window_buttons],
+                        leading=ft.IconButton(
+                            ft.Icons.ARROW_BACK_OUTLINED,
+                            tooltip=_("Back"),
+                            on_click=lambda _: view_pop(None),
+                        ),
+                    ),
+                    controls=[
+                        ft.ResponsiveRow(
+                            [
+                                ft.Switch(
+                                    _("Auto detect import format"),
+                                    value=page.client_storage.get("auto_detect_input_format"),
+                                    col=12,
+                                    on_change=change_auto_detect_input_format,
                                 ),
-                            ),
-                            ft.ElevatedButton(
-                                _("Request permission to access files"),
-                                data=ft.PermissionType.MANAGE_EXTERNAL_STORAGE,
-                                on_click=check_permission,
-                                col=12,
-                            ),
-                        ],
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    )
-                ],
-                navigation_bar=bottom_nav_bar,
-            )
-            page.views.append(view)
-        elif event.route == "/about":
-            view = ft.View(
-                appbar=ft.AppBar(
-                    title=ft.Text(_("About")),
-                    center_title=True,
-                    bgcolor=ft.Colors.SURFACE,
-                    actions=[switch_theme_btn, switch_language_btn],
-                ),
-                controls=[
-                    ft.ResponsiveRow(
-                        [
-                            ft.Text(
-                                spans=[
-                                    ft.TextSpan(
-                                        "LibreSVIP",
-                                        ft.TextStyle(size=24, weight=ft.FontWeight.BOLD),
+                                ft.Switch(
+                                    _("Reset list when import format changed"),
+                                    value=page.client_storage.get("reset_tasks_on_input_change"),
+                                    col=12,
+                                    on_change=change_reset_tasks_on_input_change,
+                                ),
+                                ft.Text(_("Max track count"), col=4),
+                                ft.Slider(
+                                    value=page.client_storage.get("max_track_count"),
+                                    min=1,
+                                    max=100,
+                                    divisions=100,
+                                    label="{value}",
+                                    col=8,
+                                    on_change=change_max_track_count,
+                                ),
+                                ft.TextField(
+                                    ref=save_folder_text_field,
+                                    label=_("Output Folder"),
+                                    value=page.client_storage.get("save_folder"),
+                                    col=10,
+                                ),
+                                ft.IconButton(
+                                    ft.Icons.FOLDER_OPEN_OUTLINED,
+                                    tooltip=_("Change Output Directory"),
+                                    col=2,
+                                    on_click=lambda e: file_picker.get_directory_path(
+                                        _("Change Output Directory")
                                     ),
-                                ],
-                                text_align=ft.TextAlign.CENTER,
-                                col=12,
-                            ),
-                            ft.Text(
-                                _("Version: ") + libresvip.__version__,
-                                text_align=ft.TextAlign.CENTER,
-                                col=12,
-                            ),
-                            ft.Text(
-                                _("Author: SoulMelody"), text_align=ft.TextAlign.CENTER, col=12
-                            ),
-                            ft.TextButton(
-                                _("Author's Profile"),
-                                icon=ft.Icons.LIVE_TV_OUTLINED,
-                                url="https://space.bilibili.com/175862486",
-                                col=6,
-                            ),
-                            ft.TextButton(
-                                _("Repo URL"),
-                                icon=ft.Icons.LOGO_DEV_OUTLINED,
-                                url="https://github.com/SoulMelody/LibreSVIP",
-                                col=6,
-                            ),
-                            ft.Card(
-                                ft.Column(
-                                    [
-                                        ft.Text(
-                                            _(
-                                                "LibreSVIP is an open-sourced, liberal and extensionable framework that can convert your singing synthesis projects between different file formats.",
-                                            )
-                                        ),
-                                        ft.Text(
-                                            _(
-                                                "All people should have the right and freedom to choose. That's why we're committed to giving you a second chance to keep your creations free from the constraints of platforms and coterie.",
-                                            )
-                                        ),
-                                    ]
                                 ),
-                                col=12,
-                            ),
-                        ],
-                    )
-                ],
-                navigation_bar=bottom_nav_bar,
+                                ft.ElevatedButton(
+                                    _("Request permission to access files"),
+                                    data=ft.PermissionType.MANAGE_EXTERNAL_STORAGE,
+                                    on_click=check_permission,
+                                    col=12,
+                                ),
+                            ],
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        )
+                    ],
+                )
             )
-            page.views.append(view)
+        elif event.route == "/about":
+            page.views.append(
+                ft.View(
+                    appbar=ft.AppBar(
+                        title=ft.WindowDragArea(
+                            ft.Row([ft.Text(_("About"))], expand=True), expand=True
+                        ),
+                        center_title=True,
+                        bgcolor=ft.Colors.SURFACE,
+                        actions=[switch_theme_btn, switch_language_btn, *window_buttons],
+                        leading=ft.IconButton(
+                            ft.Icons.ARROW_BACK_OUTLINED,
+                            tooltip=_("Back"),
+                            on_click=lambda _: view_pop(None),
+                        ),
+                    ),
+                    controls=[
+                        ft.ResponsiveRow(
+                            [
+                                ft.Text(
+                                    spans=[
+                                        ft.TextSpan(
+                                            "LibreSVIP",
+                                            ft.TextStyle(size=24, weight=ft.FontWeight.BOLD),
+                                        ),
+                                    ],
+                                    text_align=ft.TextAlign.CENTER,
+                                    col=12,
+                                ),
+                                ft.Text(
+                                    _("Version: ") + libresvip.__version__,
+                                    text_align=ft.TextAlign.CENTER,
+                                    col=12,
+                                ),
+                                ft.Text(
+                                    _("Author: SoulMelody"), text_align=ft.TextAlign.CENTER, col=12
+                                ),
+                                ft.TextButton(
+                                    _("Author's Profile"),
+                                    icon=ft.Icons.LIVE_TV_OUTLINED,
+                                    url="https://space.bilibili.com/175862486",
+                                    col=6,
+                                ),
+                                ft.TextButton(
+                                    _("Repo URL"),
+                                    icon=ft.Icons.LOGO_DEV_OUTLINED,
+                                    url="https://github.com/SoulMelody/LibreSVIP",
+                                    col=6,
+                                ),
+                                ft.Card(
+                                    ft.Column(
+                                        [
+                                            ft.Text(
+                                                _(
+                                                    "LibreSVIP is an open-sourced, liberal and extensionable framework that can convert your singing synthesis projects between different file formats.",
+                                                )
+                                            ),
+                                            ft.Text(
+                                                _(
+                                                    "All people should have the right and freedom to choose. That's why we're committed to giving you a second chance to keep your creations free from the constraints of platforms and coterie.",
+                                                )
+                                            ),
+                                        ]
+                                    ),
+                                    col=12,
+                                ),
+                            ],
+                        )
+                    ],
+                )
+            )
         page.update()
 
-    def view_pop(view: ft.View) -> None:
-        page.views.remove(view)
+    def view_pop(view: Optional[ft.View]) -> None:
+        page.views.pop()
         top_view = page.views[-1]
         page.go(top_view.route or "/")
+
+    def on_view_pop(event: ft.ViewPopEvent) -> None:
+        view_pop(event.view)
 
     def on_keyboard_event(event: ft.KeyboardEvent) -> None:
         if event.key == "Escape" and len(page.views) > 1:
             view_pop(page.views[-1])
 
+    page.on_view_pop = on_view_pop
     page.on_keyboard_event = on_keyboard_event
     page.on_route_change = on_route_change
     page.go("/")

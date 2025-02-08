@@ -1,9 +1,10 @@
+# mypy: disable-error-code="misc"
 from enum import Enum
 from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from libresvip.core.constants import DEFAULT_BPM
+from libresvip.core.constants import DEFAULT_BPM, TICKS_IN_BEAT
 from libresvip.model.option_mixins import (
     EnablePitchImportationMixin,
     EnableVolumeImportationMixin,
@@ -73,7 +74,7 @@ class OutputOptions(BaseModel):
         title=_("Transpose"),
     )
     ticks_per_beat: int = Field(
-        default=480,
+        default=TICKS_IN_BEAT,
         title=_("Ticks per beat"),
         description=_(
             "Also known as parts per quarter, ticks per quarter note, the number of pulses per quarter note. This setting should not be changed unless you know what it is."

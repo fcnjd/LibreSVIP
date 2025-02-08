@@ -10,19 +10,19 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Language-Team: German\n"
 "Language: de_DE\n"
-"PO-Revision-Date: 2024-12-17 09:02\n"
+"PO-Revision-Date: 2024-12-19 01:03\n"
 
 msgid "Unsupported lyric: "
-msgstr ""
+msgstr "Nicht unterstützter Text: "
 
 msgid "VVProj"
 msgstr ""
 
 msgid "VOICEVOX Project file"
-msgstr ""
+msgstr "VOICEVOX Projektdatei"
 
 msgid "Conversion plugin for VOICEVOX Project file"
-msgstr ""
+msgstr "Konvertierungs-Plugin für VOICEVOX-Projektdateien"
 
 msgid "SoulMelody"
 msgstr ""

@@ -10,19 +10,19 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Language-Team: German\n"
 "Language: de_DE\n"
-"PO-Revision-Date: 2024-12-17 09:02\n"
+"PO-Revision-Date: 2024-12-19 01:02\n"
 
 msgid "No singing track found"
-msgstr ""
+msgstr "Kein Gesangstrack gefunden"
 
 msgid "NIAONiao"
 msgstr ""
 
 msgid "NIAONiao Virtual Singer project file"
-msgstr ""
+msgstr "NIAONiao Virtual Singer-Projektdatei"
 
 msgid "Conversion plugin for NIAONiao project file"
-msgstr ""
+msgstr "Konvertierungs-Plugin für NIAONiao-Projektdateien"
 
 msgid "SoulMelody"
 msgstr ""
@@ -31,5 +31,5 @@ msgid "Version"
 msgstr ""
 
 msgid "Version of NIAONiao project file"
-msgstr ""
+msgstr "Version der NIAONiao-Projektdatei"
 

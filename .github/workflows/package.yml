@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v5
         with:
           version: "latest"
       - name: Build with pyinstaller
@@ -29,7 +29,7 @@ jobs:
           uv venv --python 3.13
           uv build --wheel
           cd packaging
-          uv pip install -r requirements.txt
+          uv pip install -r requirements-desktop.txt
           uv pip install ../dist/*.whl --no-deps
           uv run pyinstaller libresvip.spec
           cd dist
@@ -91,7 +91,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v5
         with:
           version: "latest"
       - name: Build with pyinstaller
@@ -128,7 +128,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v5
         with:
           version: "latest"
       - name: Build with pyinstaller
@@ -169,7 +169,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v5
         with:
           version: "latest"
       - name: Install OS dependencies
@@ -181,7 +181,7 @@ jobs:
           uv build --wheel
           uv venv --python 3.13
           cd packaging
-          uv pip install -r requirements.txt
+          uv pip install -r requirements-desktop.txt
           uv pip install ../dist/*.whl --no-deps
           uv run pyinstaller libresvip.spec
           cd dist
@@ -201,39 +201,34 @@ jobs:
             ./packaging/dist/LibreSVIP-${{ needs.make-outputs.outputs.VERSION }}.linux-x86_64.tar.gz
 
   release_linux_aarch64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     needs: [make-outputs]
     steps:
       - uses: actions/checkout@v4
-      - uses: uraimo/run-on-arch-action@v2
-        name: Build artifact
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
         with:
-          arch: none
-          distro: none
-          base_image: "--platform=linux/arm64 arm64v8/ubuntu:24.04"
-          dockerRunArgs: --volume "${PWD}:/libresvip"
-          install: |
-            apt-get update
-            apt-get install -y binutils curl libdouble-conversion3 libfreetype6 libfontconfig1 libegl1 libgl1 libglib2.0-0 libmediainfo-dev libtiff6 libwayland-dev libwebp7 libwebpdemux2 libwebpmux3 libxt6
-          run: |
-            cd /libresvip
-            curl -LsSf https://astral.sh/uv/install.sh | sh
-            source $HOME/.local/bin/env
-            uv venv --python 3.13
-            uv build --wheel
-            cd packaging
-            uv pip install -r requirements.txt
-            uv pip install ../dist/*.whl --no-deps
-            uv run pyinstaller libresvip.spec
-            cd dist
-            tar -czvf LibreSVIP-${{ needs.make-outputs.outputs.VERSION }}.linux-aarch64.tar.gz libresvip
-            rm -rf libresvip
-            cd ../..
+          version: "latest"
+      - name: Install OS dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils curl libdouble-conversion3 libfreetype6 libfontconfig1 libegl1 libgl1 libglib2.0-0 libmediainfo-dev libtiff6 libwayland-dev libwebp7 libwebpdemux2 libwebpmux3 libxt6
+      - name: Build with pyinstaller
+        run: |
+          uv build --wheel
+          uv venv --python 3.13
+          cd packaging
+          uv pip install -r requirements-desktop.txt
+          uv pip install ../dist/*.whl --no-deps
+          uv run pyinstaller libresvip.spec
+          cd dist
+          tar -czvf LibreSVIP-${{ needs.make-outputs.outputs.VERSION }}.linux-aarch64.tar.gz libresvip
+          rm -rf libresvip
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: libresvip-linux-aarch64.zip
-          path: ./packaging/dist
+          path: ./packaging/dist/
       - name: Create Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
@@ -248,7 +243,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v5
         with:
           version: "latest"
       - name: Build with pyinstaller
@@ -256,7 +251,7 @@ jobs:
           uv build --wheel
           uv venv --python 3.13
           cd packaging
-          uv pip install -r requirements.txt
+          uv pip install -r requirements-desktop.txt
           uv pip install ../dist/*.whl --no-deps
           uv run python -m PyInstaller libresvip.spec
           brew install create-dmg
@@ -284,7 +279,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v5
         with:
           version: "latest"
       - name: Build with pyinstaller
@@ -292,7 +287,7 @@ jobs:
           uv build --wheel
           uv venv --python 3.13
           cd packaging
-          uv pip install -r requirements.txt
+          uv pip install -r requirements-desktop.txt
           curl -L https://mediaarea.net/download/binary/libmediainfo0/${LIBMEDIAINFO_VERSION}/MediaInfo_DLL_${LIBMEDIAINFO_VERSION}_Mac_x86_64+arm64.tar.bz2 --output libmediainfo.tar.bz2
           tar xvf libmediainfo.tar.bz2
           mv MediaInfoLib/libmediainfo.0.dylib ../.venv/lib/python3.13/site-packages/pymediainfo/
@@ -314,3 +309,59 @@ jobs:
           tag_name: v${{ needs.make-outputs.outputs.VERSION }}
           files: |
             ./packaging/dist/LibreSVIP-${{ needs.make-outputs.outputs.VERSION }}.macos-arm64.dmg
+
+  release_apk:
+    runs-on: ubuntu-latest
+    needs: [make-outputs]
+    env:
+      FLUTTER_VERSION: "3.24.4"
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Install Python Dependencies
+        run: |
+          uv build --wheel
+          uv venv --python 3.12
+          uv sync --extra mobile
+          uv run python -m ensurepip --upgrade
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Flet Build APK
+        run: |
+          flutter config --no-analytics
+          cd packaging
+          uv run python install_mobile_requirements.py --platform android_24_arm64_v8a --arch arm64-v8a
+          uv run python install_mobile_requirements.py --platform android_24_armeabi_v7a --arch armeabi-v7a
+          uv run python install_mobile_requirements.py --platform android_24_x86_64 --arch x86_64
+          bash build_apk.sh
+          mv build/apk/app-release.apk build/apk/LibreSVIP-${{ needs.make-outputs.outputs.VERSION }}.apk
+          cd ..
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libresvip-android.zip
+          path: ./packaging/build/apk
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          tag_name: v${{ needs.make-outputs.outputs.VERSION }}
+          files: |
+            ./packaging/build/apk/LibreSVIP-${{ needs.make-outputs.outputs.VERSION }}.apk

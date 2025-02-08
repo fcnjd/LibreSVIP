@@ -10,16 +10,16 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Language-Team: German\n"
 "Language: de_DE\n"
-"PO-Revision-Date: 2024-12-17 09:02\n"
+"PO-Revision-Date: 2024-12-19 01:02\n"
 
 msgid "MusicXML"
 msgstr ""
 
 msgid "MusicXML file"
-msgstr ""
+msgstr "MusicXML-Datei"
 
 msgid "Conversion plugin for MusicXML Score file"
-msgstr ""
+msgstr "Konvertierungs-Plugin für MusicXML-Notendateien"
 
 msgid "Sder Colin"
 msgstr ""

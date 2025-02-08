@@ -10,26 +10,26 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Language-Team: German\n"
 "Language: de_DE\n"
-"PO-Revision-Date: 2024-12-17 09:02\n"
+"PO-Revision-Date: 2024-12-19 01:02\n"
 
 msgid "Svip3"
 msgstr ""
 
 msgid "Netease Cloud Music XStudio project file"
-msgstr ""
+msgstr "Netease Cloud Music XStudio Projektdatei"
 
 msgid "Conversion plugin for Netease Cloud Music XStudio project file"
-msgstr ""
+msgstr "Konvertierungs-Plugin für Netease Cloud Music XStudio Projektdateien"
 
 msgid "FlutyDeer"
 msgstr ""
 
 msgid "Unsupported pinyin:"
-msgstr ""
+msgstr "Nicht unterstütztes Pinyin:"
 
 msgid "Note duration is too short:"
-msgstr ""
+msgstr "Notendauer ist zu kurz:"
 
 msgid "Note duration is too long:"
-msgstr ""
+msgstr "Notendauer ist zu lang:"
 

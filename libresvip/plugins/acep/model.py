@@ -12,6 +12,7 @@ from typing import (
     NamedTuple,
     Optional,
     Union,
+    cast,
 )
 
 from more_itertools import batched, minmax
@@ -30,9 +31,8 @@ from libresvip.core.time_interval import RangeInterval
 from libresvip.model.base import BaseModel
 from libresvip.model.point import PointList
 from libresvip.utils.audio import audio_path_validator
-from libresvip.utils.music_math import linear_interpolation
+from libresvip.utils.music_math import HermiteInterpolator
 
-from .ace_curve_utils import interpolate_hermite
 from .enums import AcepLyricsLanguage
 from .singers import DEFAULT_SEED, DEFAULT_SINGER, DEFAULT_SINGER_ID
 
@@ -69,26 +69,22 @@ class AcepParamCurve(BaseModel):
     ) -> list[float]:
         return list(chain.from_iterable(points.root))
 
-    def points2values(self) -> None:
-        if self.curve_type == "anchor" and self.points is not None:
-            if len(self.points.root) > 2:
-                self.offset = math.floor(self.points.root[0].pos)
-                self.values = interpolate_hermite(
-                    [point.pos for point in self.points.root],
-                    [point.value for point in self.points.root],
-                    list(
-                        range(
-                            self.offset,
-                            math.ceil(self.points.root[-1].pos) + 1,
-                        )
-                    ),
-                )
-            elif len(self.points.root) == 2:
-                self.offset = math.floor(self.points.root[0].pos)
-                self.values = [
-                    linear_interpolation(pos, self.points.root[0], self.points.root[-1])
-                    for pos in range(self.offset, math.ceil(self.points.root[-1].pos) + 1)
-                ]
+    @model_validator(mode="after")
+    def points2values(self) -> Self:
+        if self.curve_type == "anchor" and self.points is not None and len(self.points.root):
+            interpolator = HermiteInterpolator(
+                cast(list[tuple[float, float]], self.points.root),
+            )
+            self.offset = math.floor(self.points.root[0].pos)
+            self.values = interpolator.interpolate(
+                list(
+                    range(
+                        self.offset,
+                        math.ceil(self.points.root[-1].pos) + 1,
+                    )
+                ),
+            )
+        return self
 
     def transform(self, value_transform: Callable[[float], float]) -> AcepParamCurve:
         return self.model_copy(
@@ -231,13 +227,13 @@ class AcepNote(BaseModel):
     pitch: int = 0
     language: AcepLyricsLanguage = AcepLyricsLanguage.CHINESE
     lyric: str = ""
-    pronunciation: str = ""
+    pronunciation: Optional[str] = None
     freezed_default_syllable: Optional[str] = Field(None, alias="freezedDefaultSyllable")
     new_line: bool = Field(False, alias="newLine")
     consonant_len: Optional[int] = Field(None, alias="consonantLen")
     head_consonants: Optional[list[float]] = Field(default_factory=list, alias="headConsonants")
     tail_consonants: Optional[list[float]] = Field(default_factory=list, alias="tailConsonants")
-    syllable: Optional[str] = ""
+    syllable: str = ""
     br_len: float = Field(0.0, alias="brLen")
     vibrato: Optional[AcepVibrato] = None
     extra_info: dict[str, Any] = Field(default_factory=dict, alias="extraInfo")
@@ -339,7 +335,7 @@ class AcepSingerConfig(BaseModel):
 
 class AcepVocalTrack(AcepTrackProperties, BaseModel):
     type_: Literal["sing"] = Field(default="sing", alias="type")
-    singer: Optional[AcepCustomSinger] = None
+    singer: Optional[Union[int, AcepCustomSinger]] = None
     language: AcepLyricsLanguage = AcepLyricsLanguage.CHINESE
     patterns: list[AcepVocalPattern] = Field(default_factory=list)
     choir_info: dict[str, Any] = Field(default_factory=dict, alias="choirInfo")
@@ -348,7 +344,12 @@ class AcepVocalTrack(AcepTrackProperties, BaseModel):
     @model_validator(mode="after")
     def migrate_singer_attr(self) -> Self:
         if self.singer is not None:
-            self.singers.append(AcepSingerConfig(singer=self.singer))
+            if isinstance(self.singer, int):
+                self.singers.append(
+                    AcepSingerConfig(singer=AcepCustomSinger(singer_id=self.singer))
+                )
+            else:
+                self.singers.append(AcepSingerConfig(singer=self.singer))
         return self
 
     def __len__(self) -> int:
@@ -412,3 +413,15 @@ class AcepProject(BaseModel):
     singer_library_id: Optional[str] = "1200593006"
     time_signatures: list[AcepTimeSignature] = Field(default_factory=list, alias="timeSignatures")
     track_control_panel_w: Optional[int] = Field(0, alias="trackControlPanelW")
+
+    @model_validator(mode="after")
+    def migrate_time_signatures(self) -> Self:
+        if not self.time_signatures:
+            self.time_signatures.append(
+                AcepTimeSignature(
+                    bar_pos=0,
+                    numerator=self.beats_per_bar,
+                    denominator=4,
+                )
+            )
+        return self

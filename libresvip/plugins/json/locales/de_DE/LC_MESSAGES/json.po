@@ -10,23 +10,23 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Language-Team: German\n"
 "Language: de_DE\n"
-"PO-Revision-Date: 2024-12-17 09:01\n"
+"PO-Revision-Date: 2024-12-19 01:02\n"
 
 msgid "JsonSvip"
 msgstr ""
 
 msgid "OpenSVIP file"
-msgstr ""
+msgstr "OpenSVIP Datei"
 
 msgid "Conversion plugin for OpenSVIP Model, which is based on json"
-msgstr ""
+msgstr "Konvertierungs-Plugin für das OpenSVIP Modell, welches auf JSON basiert"
 
 msgid "yqzhishen"
 msgstr ""
 
 msgid "Generate JSON file with indentation"
-msgstr ""
+msgstr "JSON-Datei mit Einrückung erzeugen"
 
 msgid "The indented format is easier to read and modify, but it will take up a larger file size."
-msgstr ""
+msgstr "Das eingerückte Format ist leichter zu lesen und zu bearbeiten, nimmt aber mehr Speicherplatz in Anspruch."
 
